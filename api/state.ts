@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { db } from './_db';
 import { completeRound } from './_purchase';
+import { nextPriceCents, starsForCents, CAP_CENTS } from './_config';
 
 const BOARDS = ['ar', 'en', 'ru'];
 
@@ -39,6 +40,9 @@ function formatState(state: any) {
     current_word: state.current_word,
     current_owner: state.current_owner_name,
     current_price_cents: state.current_price_cents,
+    current_price_stars: starsForCents(state.current_price_cents),
+    next_price_cents: nextPriceCents(state.current_price_cents),
+    cap_cents: CAP_CENTS,
     last_purchase_at: state.last_purchase_at,
     round: round ? {
       id: round.id,

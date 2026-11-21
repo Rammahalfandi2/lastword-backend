@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { db } from './_db';
 import { nextPriceCents, starsForCents, CRYPTO_PAY_TOKEN, CAP_CENTS } from './_config';
 import crypto from 'crypto';
+import { isWordAllowed } from './_validate';
+import { validateInitDataUser, initDataFromHeaders } from './_auth';
 
 const CRYPTO_API = process.env.CRYPTO_PAY_API_URL || 'https://pay.crypt.bot/api';
 const BOT_USERNAME = process.env.BOT_USERNAME || 'word2027_Bot';
@@ -25,68 +27,20 @@ function checkRateLimit(tgId: string): boolean {
   return true; // ok
 }
 
-// ✅ CONTENT: Word filter — blocked terms (fix #13 + #14)
-const BLOCKED_TERMS = [
-  // ✅ Fix #14: Financial/investment terms NEVER allowed
-  'ربح', 'استثمار', 'عائد', 'profit', 'invest', 'return', 'returns', 'roi',
-  // Fix #13: Offensive / political / spam patterns
-  'http://', 'https://', 'www.', '.com', '.net', '.org', '.io',
-  '@', 'telegram.me', 't.me',
-  // Offensive (basic list — extend as needed)
-  'fuck', 'shit', 'ass', 'bitch', 'nigger', 'faggot',
-  // Political extremism
-  'isis', 'داعش', 'نازي', 'nazi', 'hitler',
-  // Arabic offensive (basic)
-  'كلب', 'حمار', 'عاهرة',
-];
-
-const BLOCKED_REGEX = [
-  /https?:\/\//i,         // URLs
-  /www\./i,               // Web addresses
-  /\.(com|net|org|io|xyz|club)\b/i,  // Domains
-  /[^\p{L}\p{N}\s\-_']/u, // Non-letter/number chars (allow Unicode letters)
-  /\d{5,}/,               // Long number sequences (phone numbers)
-];
-
-function isWordAllowed(word: string): { ok: boolean; reason?: string } {
-  const trimmed = word.trim().toLowerCase();
-
-  // ✅ Fix: Max 20 chars (not 50)
-  if (word.trim().length > 20) {
-    return { ok: false, reason: 'Word too long (max 20 characters)' };
-  }
-  if (word.trim().length < 1) {
-    return { ok: false, reason: 'Word cannot be empty' };
-  }
-
-  // Check blocked terms
-  for (const term of BLOCKED_TERMS) {
-    if (trimmed.includes(term.toLowerCase())) {
-      return { ok: false, reason: 'This word is not allowed' };
-    }
-  }
-
-  // Check regex patterns
-  for (const pattern of BLOCKED_REGEX) {
-    if (pattern.test(word.trim())) {
-      return { ok: false, reason: 'This word contains disallowed content (links or special characters)' };
-    }
-  }
-
-  return { ok: true };
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { tg_id, tg_name, board_id, word, payment_method } = req.body;
-  if (!tg_id || !tg_name || !board_id || !word || !payment_method) {
+  // ✅ Identity comes ONLY from Telegram WebApp initData (HMAC-validated), never from the body.
+  const user = validateInitDataUser(initDataFromHeaders(req.headers), process.env.TELEGRAM_BOT_TOKEN);
+  if (!user) return res.status(401).json({ error: 'Unauthorized. Open the game inside Telegram.' });
+  const tg_id = user.id;
+  const tg_name = user.name;
+
+  const { board_id, word, payment_method } = req.body || {};
+  if (!board_id || !word || !payment_method) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
-  if (!/^\d{1,20}$/.test(String(tg_id))) {
-    return res.status(400).json({ error: 'Invalid tg_id' });
-  }
-  if (typeof word !== 'string' || typeof tg_name !== 'string') {
+  if (typeof word !== 'string') {
     return res.status(400).json({ error: 'Invalid fields' });
   }
   if (!['usdt', 'stars'].includes(payment_method)) {
@@ -101,7 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // ✅ CONTENT: Word filter (fix #13 + #14)
   const wordCheck = isWordAllowed(word);
   if (!wordCheck.ok) {
-    return res.status(400).json({ error: wordCheck.reason || 'Invalid word' });
+    return res.status(400).json({ error: wordCheck.reason || 'Invalid word', code: wordCheck.code });
   }
 
   // Validate board_id
@@ -192,11 +146,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } else {
     // Stars payment — handled via Telegram bot inline
     const starsNeeded = starsForCents(priceCents); // ✅ integer
+    // Invoice link for Telegram.WebApp.openInvoice (Mini App). The bot's /start pay_<id> flow still works too.
+    let invoiceLink: string | null = null;
+    try {
+      const tgRes = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/createInvoiceLink`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `The Last Word — ${String(board_id).toUpperCase()}`,
+          description: `Set your word: "${word.trim()}". Stars balance is game credit only and cannot be withdrawn.`,
+          payload: paymentId,
+          currency: 'XTR',
+          prices: [{ label: `Word: ${word.trim()}`, amount: starsNeeded }]
+        })
+      });
+      const tgData = await tgRes.json() as any;
+      if (tgData?.ok) invoiceLink = tgData.result;
+      else console.error('createInvoiceLink failed:', tgData?.description);
+    } catch (e) {
+      console.error('createInvoiceLink error:', e);
+    }
     return res.json({
       payment_id: paymentId,
       stars_needed: starsNeeded,
       amount_cents: priceCents,
       method: 'stars',
+      invoice_link: invoiceLink,
       bot_start: `pay_${paymentId}`
     });
   }

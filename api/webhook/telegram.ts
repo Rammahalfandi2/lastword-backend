@@ -7,6 +7,12 @@ import { isValidTelegramWebhook, escapeHtml } from '../_auth';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const ADMIN_TG_ID = process.env.ADMIN_TELEGRAM_ID!;
 const TG_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+const APP_URL = `${(process.env.BASE_URL || 'https://lastword-backend.vercel.app').replace(/\/+$/, '')}/`;
+const PLAY_BUTTON = { inline_keyboard: [[{ text: '🎮 Play The Last Word', web_app: { url: APP_URL } }]] };
+// /start <param> deep links from the Mini App that map to bot commands
+const START_ALIASES: Record<string, string> = {
+  terms: '/terms', support: '/support', paysupport: '/paysupport', balance: '/balance', withdraw: '/withdraw', scores: '/scores'
+};
 
 function starsForCents(cents: number): number {
   return Math.ceil((cents / 100) * 77);
@@ -139,7 +145,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const msg = update.message;
   const chatId = String(msg.chat.id);
-  const text = (msg.text as string).trim();
+  let text = (msg.text as string).trim().replace(/^(\/\w+)@\w+/, '$1');
+  const startParam = text.startsWith('/start ') ? text.split(/\s+/)[1] : undefined;
+  if (startParam && START_ALIASES[startParam]) text = START_ALIASES[startParam];
   const tgId = String(msg.from.id);
   const tgName = msg.from.first_name || tgId;
 
@@ -182,8 +190,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await sendMsg(chatId,
       `🌐 <b>Welcome to The Last Word on the Internet!</b>\n\n` +
       `A fame game — the last holder of a word when the round ends wins forever.\n\n` +
-      `🕹 Visit the game: <a href="https://claude.ai/artifact/ScKpDdVuwwRqaoP3bZqbwU">Play here</a>\n\n` +
-      `Commands:\n/balance — Check your balance\n/terms — Terms of use\n/support — Get help\n/paysupport — Payment help`
+      `🕹 Tap <b>Play</b> below to open the game.\n\n` +
+      `Commands:\n/balance — Check your balance\n/terms — Terms of use\n/support — Get help\n/paysupport — Payment help`,
+      msg.chat?.type === 'private' ? { reply_markup: PLAY_BUTTON } : undefined
     );
     return res.status(200).json({ ok: true });
   }

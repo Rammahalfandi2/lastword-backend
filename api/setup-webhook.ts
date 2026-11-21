@@ -1,7 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { isAdminRequest } from './_auth';
 
-// ADMIN ONLY: registers the Telegram webhook with secret_token = TELEGRAM_WEBHOOK_SECRET.
+// ADMIN ONLY: registers the Telegram webhook with secret_token = TELEGRAM_WEBHOOK_SECRET
+// and sets the chat menu button to open the Mini App at BASE_URL/.
 // Call with POST (or GET) and header x-admin-key: <ADMIN_SECRET_KEY>. Query-string keys are rejected.
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -27,5 +28,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   const data = await result.json() as any;
-  return res.json({ ok: !!data?.ok, description: data?.description, webhook_url: webhookUrl });
+
+  // Chat menu button → open the Mini App (default for all private chats).
+  const appUrl = `${baseUrl.replace(/\/+$/, '')}/`;
+  let menu: any = null;
+  try {
+    const menuRes = await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ menu_button: { type: 'web_app', text: 'Play', web_app: { url: appUrl } } })
+    });
+    menu = await menuRes.json();
+  } catch (e) {
+    menu = { ok: false, description: 'request failed' };
+  }
+
+  return res.json({
+    ok: !!data?.ok,
+    description: data?.description,
+    webhook_url: webhookUrl,
+    menu_button: { ok: !!menu?.ok, description: menu?.description, url: appUrl }
+  });
 }

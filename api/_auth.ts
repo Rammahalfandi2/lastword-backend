@@ -34,16 +34,18 @@ export function isValidTelegramWebhook(
   return safeEqual(headerValue(headers['x-telegram-bot-api-secret-token']), secret);
 }
 
+export type InitDataUser = { id: string; name: string; languageCode?: string; username?: string };
+
 /**
  * Validate Telegram WebApp initData (https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app).
- * Returns the Telegram user id on success, otherwise null.
+ * Returns the Telegram user on success, otherwise null.
  */
-export function validateInitData(
+export function validateInitDataUser(
   initData: string | undefined,
   botToken: string | undefined,
   maxAgeSeconds = 24 * 60 * 60,
   nowSeconds = Math.floor(Date.now() / 1000)
-): string | null {
+): InitDataUser | null {
   if (!initData || !botToken) return null;
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
@@ -62,11 +64,28 @@ export function validateInitData(
 
   try {
     const user = JSON.parse(params.get('user') || 'null');
-    if (!user || user.id === undefined || user.id === null) return null;
-    return String(user.id);
+    if (!user || user.id === undefined || user.id === null || !/^\d{1,20}$/.test(String(user.id))) return null;
+    const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim();
+    const name = (fullName || user.username || String(user.id)).substring(0, 64);
+    return { id: String(user.id), name, languageCode: user.language_code, username: user.username };
   } catch {
     return null;
   }
+}
+
+/** Same as validateInitDataUser but returns only the Telegram user id. */
+export function validateInitData(
+  initData: string | undefined,
+  botToken: string | undefined,
+  maxAgeSeconds = 24 * 60 * 60,
+  nowSeconds = Math.floor(Date.now() / 1000)
+): string | null {
+  return validateInitDataUser(initData, botToken, maxAgeSeconds, nowSeconds)?.id ?? null;
+}
+
+/** Read initData from the X-Telegram-Init-Data header. */
+export function initDataFromHeaders(headers: Record<string, string | string[] | undefined>): string | undefined {
+  return headerValue(headers['x-telegram-init-data']);
 }
 
 /** Python-style ensure_ascii JSON (non-ASCII as \uXXXX). */

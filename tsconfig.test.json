@@ -1,5 +1,14 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "outDir": "./.test-dist", "rootDir": "./", "noEmit": false },
-  "include": ["api/_auth.ts", "api/_config.ts", "tests/**/*"]
+  "compilerOptions": {
+    "outDir": "./.test-dist",
+    "rootDir": "./",
+    "noEmit": false
+  },
+  "include": [
+    "api/_auth.ts",
+    "api/_config.ts",
+    "api/_validate.ts",
+    "tests/**/*"
+  ]
 }

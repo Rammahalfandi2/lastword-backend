@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="color-scheme" content="light dark" />
+  <title>The Last Word</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">“</div>
+        <div>
+          <h1 data-i18n="title">The Last Word</h1>
+          <p class="tagline" data-i18n="tagline">The last word on the internet — a fame game</p>
+        </div>
+      </div>
+      <div class="boards" role="tablist" id="boards">
+        <button class="board" data-board="en" role="tab">EN</button>
+        <button class="board" data-board="ar" role="tab">AR</button>
+        <button class="board" data-board="ru" role="tab">RU</button>
+      </div>
+    </header>
+
+    <div id="outside" class="notice hidden">
+      <span data-i18n="openInTg">Open the game inside Telegram to buy and see your balance.</span>
+      <a class="link-btn" id="outsideLink" href="https://t.me/word2027_Bot" target="_blank" rel="noopener" data-i18n="openBot">Open the bot</a>
+    </div>
+
+    <main>
+      <!-- GAME -->
+      <section class="view" id="view-game">
+        <div class="card hero" id="hero">
+          <div class="label" data-i18n="currentWord">Current word</div>
+          <div class="word" id="word">…</div>
+          <div class="owner" id="owner"></div>
+
+          <div class="prices">
+            <div class="price">
+              <div class="label" data-i18n="priceNow">Price now</div>
+              <div class="value" id="priceNow">—</div>
+              <div class="sub" id="priceStars"></div>
+            </div>
+            <div class="arrow" aria-hidden="true">→</div>
+            <div class="price">
+              <div class="label" data-i18n="nextPrice">Next price</div>
+              <div class="value muted" id="priceNext">—</div>
+              <div class="sub" data-i18n="nextHint">after the next buy</div>
+            </div>
+          </div>
+
+          <div class="round">
+            <div class="round-row">
+              <span id="roundLabel"></span>
+              <span class="countdown" id="countdown">—</span>
+            </div>
+            <div class="bar"><div class="fill" id="capFill"></div></div>
+            <div class="round-row small">
+              <span data-i18n="toCap">Progress to round cap</span>
+              <span id="capText"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card buy" id="buyCard">
+          <h2 data-i18n="buyTitle">Buy the word</h2>
+          <div class="field">
+            <input id="wordInput" type="text" maxlength="20" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" />
+            <span class="counter" id="counter">0/20</span>
+          </div>
+          <div class="hint" id="wordHint" data-i18n="wordHint">Letters and numbers only, up to 20 characters.</div>
+
+          <div class="label pay-label" data-i18n="payWith">Pay with</div>
+          <div class="methods">
+            <button class="method selected" data-method="usdt">
+              <span class="m-title">💵 USDT</span>
+              <span class="m-sub" data-i18n="usdtSub">via CryptoBot · withdrawable refunds</span>
+              <span class="m-price" id="mUsdt"></span>
+            </button>
+            <button class="method" data-method="stars">
+              <span class="m-title">⭐ Stars</span>
+              <span class="m-sub" data-i18n="starsSub">in-game credit only</span>
+              <span class="m-price" id="mStars"></span>
+            </button>
+          </div>
+          <p class="fine" data-i18n="refundNote">If someone takes your word, what you paid comes back to your in-game balance with a 5% bonus.</p>
+          <button class="primary" id="buyBtn" disabled>…</button>
+          <div class="status" id="buyStatus" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <!-- HALL OF FAME -->
+      <section class="view hidden" id="view-fame">
+        <div class="card">
+          <h2 data-i18n="fameTitle">Hall of Fame</h2>
+          <ol class="fame" id="fameList"></ol>
+          <div class="empty hidden" id="fameEmpty" data-i18n="fameEmpty">No winners yet. Be the first!</div>
+        </div>
+      </section>
+
+      <!-- BALANCE -->
+      <section class="view hidden" id="view-balance">
+        <div class="card">
+          <h2 data-i18n="balanceTitle">My balance</h2>
+          <div class="balances">
+            <div class="bal">
+              <div class="label">💵 USDT</div>
+              <div class="value" id="balUsdt">—</div>
+              <div class="sub" data-i18n="usdtNote">withdrawable</div>
+            </div>
+            <div class="bal">
+              <div class="label">⭐ Stars</div>
+              <div class="value" id="balStars">—</div>
+              <div class="sub" data-i18n="starsNote">game credit, not withdrawable</div>
+            </div>
+          </div>
+          <div class="status" id="balStatus"></div>
+        </div>
+        <div class="card">
+          <h2 data-i18n="withdrawTitle">Withdraw USDT</h2>
+          <p data-i18n="withdrawInfo">Send this to the bot:</p>
+          <code class="cmd">/withdraw 10.00 YOUR_WALLET_ADDRESS</code>
+          <p class="fine" data-i18n="withdrawRules">Minimum $5, up to $100 per day. Every request is reviewed manually.</p>
+          <button class="secondary" data-start="withdraw" data-i18n="openBot">Open the bot</button>
+        </div>
+      </section>
+
+      <!-- RULES -->
+      <section class="view hidden" id="view-rules">
+        <div class="card">
+          <h2 data-i18n="rulesTitle">How it works</h2>
+          <ul class="rules" id="rulesList"></ul>
+          <div class="row-btns">
+            <button class="secondary" data-start="terms" data-i18n="fullTerms">Full terms</button>
+            <button class="secondary" data-start="support" data-i18n="support">Support</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="game"><span class="ic">🎯</span><span data-i18n="tabGame">Game</span></button>
+      <button class="tab" data-view="fame"><span class="ic">🏆</span><span data-i18n="tabFame">Fame</span></button>
+      <button class="tab" data-view="balance"><span class="ic">💰</span><span data-i18n="tabBalance">Balance</span></button>
+      <button class="tab" data-view="rules"><span class="ic">📋</span><span data-i18n="tabRules">Rules</span></button>
+    </nav>
+    <div class="toast hidden" id="toast"></div>
+  </div>
+  <script src="/validate.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
