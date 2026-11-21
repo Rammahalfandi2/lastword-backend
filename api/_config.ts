@@ -15,6 +15,23 @@ export function nextPriceCents(currentCents: number): number {
   return currentCents + step;
 }
 
+/**
+ * Inverse of nextPriceCents: the price the current owner paid, given the board's
+ * current (next) price. Returns null if `currentCents` is not reachable.
+ */
+export function previousPriceCents(currentCents: number): number | null {
+  if (!Number.isInteger(currentCents) || currentCents <= 100) return null;
+  // nextPriceCents is strictly increasing, so binary search over [1, currentCents).
+  let lo = 1, hi = currentCents - 1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const n = nextPriceCents(mid);
+    if (n === currentCents) return mid;
+    if (n < currentCents) lo = mid + 1; else hi = mid - 1;
+  }
+  return null;
+}
+
 export function refundCents(paidCents: number): number {
   return Math.floor(paidCents * (1 + OWNER_BONUS_PCT));
 }

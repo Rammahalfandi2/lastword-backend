@@ -1,9 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { db } from './_db';
-import { nextPriceCents, starsForCents, CRYPTO_PAY_TOKEN, BASE_URL, CAP_CENTS } from './_config';
+import { nextPriceCents, starsForCents, CRYPTO_PAY_TOKEN, CAP_CENTS } from './_config';
 import crypto from 'crypto';
 
-const CRYPTO_API = 'https://pay.crypt.bot/api';
+const CRYPTO_API = process.env.CRYPTO_PAY_API_URL || 'https://pay.crypt.bot/api';
+const BOT_USERNAME = process.env.BOT_USERNAME || 'word2027_Bot';
 
 // ✅ SECURITY: In-memory rate limiter (fix #6)
 // Key: `${tg_id}:${endpoint}` → { count, resetAt }
@@ -82,6 +83,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!tg_id || !tg_name || !board_id || !word || !payment_method) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
+  if (!/^\d{1,20}$/.test(String(tg_id))) {
+    return res.status(400).json({ error: 'Invalid tg_id' });
+  }
+  if (typeof word !== 'string' || typeof tg_name !== 'string') {
+    return res.status(400).json({ error: 'Invalid fields' });
+  }
   if (!['usdt', 'stars'].includes(payment_method)) {
     return res.status(400).json({ error: 'Invalid payment method' });
   }
@@ -130,7 +137,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const paymentId = crypto.randomUUID();
 
   // Store pending payment
-  await db.from('pending_payments').insert({
+  const { error: insErr } = await db.from('pending_payments').insert({
     id: paymentId,
     tg_id: String(tg_id),
     tg_name: String(tg_name).substring(0, 64), // Sanitize name length
@@ -140,6 +147,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     payment_method,
     status: 'pending'
   });
+  if (insErr) {
+    console.error('pending_payments insert error:', insErr);
+    return res.status(500).json({ error: 'Could not start payment. Please try again.' });
+  }
 
   if (payment_method === 'usdt') {
     // ✅ SECURITY: amount as string with 2 decimal places (CryptoBot API requirement)
@@ -156,8 +167,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         amount: amountUsdt,
         description: `The Last Word: "${word.trim()}" on ${board_id.toUpperCase()} board`,
         payload: paymentId,
-        paid_btn_name: 'callback',
-        paid_btn_url: `${BASE_URL}/api/crypto-paid?id=${paymentId}`
+        // Invoice expires quickly so it cannot be paid later at an old (lower) price.
+        expires_in: 15 * 60,
+        // /api/crypto-paid does not exist; send the payer back to the bot instead.
+        paid_btn_name: 'openBot',
+        paid_btn_url: `https://t.me/${BOT_USERNAME}`
       })
     });
 

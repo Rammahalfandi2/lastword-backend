@@ -1,14 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { db } from '../_db';
 import { executePurchase } from '../_purchase';
+import { adjustBalance } from '../_balance';
+import { isValidTelegramWebhook, escapeHtml } from '../_auth';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET!;
 const ADMIN_TG_ID = process.env.ADMIN_TELEGRAM_ID!;
 const TG_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
-
-// ✅ SECURITY: Stars balance non-withdrawable flag
-const STARS_CURRENCY = 'stars' as const;
 
 function starsForCents(cents: number): number {
   return Math.ceil((cents / 100) * 77);
@@ -42,16 +40,13 @@ async function checkDailyWithdrawalLimit(tgId: string, amountCents: number): Pro
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  // ✅ SECURITY: Verify X-Telegram-Bot-Api-Secret-Token (fix #2)
-  if (TELEGRAM_WEBHOOK_SECRET) {
-    const incomingSecret = req.headers['x-telegram-bot-api-secret-token'];
-    if (incomingSecret !== TELEGRAM_WEBHOOK_SECRET) {
-      console.error('Invalid Telegram webhook secret');
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+  // ✅ SECURITY: Verify X-Telegram-Bot-Api-Secret-Token (constant-time, fail-closed if unset)
+  if (!isValidTelegramWebhook(req.headers)) {
+    console.error('Invalid Telegram webhook secret');
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const update = req.body;
+  const update = req.body || {};
 
   // Handle pre_checkout_query (Stars) — must respond within 10s
   if (update.pre_checkout_query) {
@@ -62,15 +57,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select('*')
       .eq('id', paymentId)
       .eq('status', 'pending')
-      .single();
+      .maybeSingle();
+
+    // Accept only if the payment is pending, is a Stars payment, the amount matches,
+    // and the board price has not moved since the invoice was created.
+    let okToPay = !!payment && payment.payment_method === 'stars' &&
+      pcq.currency === 'XTR' && pcq.total_amount === starsForCents(payment.amount_cents);
+    if (okToPay) {
+      const { data: st } = await db.from('board_state').select('current_price_cents').eq('board_id', payment.board_id).maybeSingle();
+      okToPay = !!st && st.current_price_cents === payment.amount_cents;
+    }
 
     await fetch(`${TG_API}/answerPreCheckoutQuery`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         pre_checkout_query_id: pcq.id,
-        ok: !!payment,
-        error_message: payment ? undefined : 'Payment expired. Please try again from the website.'
+        ok: okToPay,
+        error_message: okToPay ? undefined : 'This price has expired. Please start a new purchase.'
       })
     });
     return res.status(200).json({ ok: true });
@@ -80,8 +84,54 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (update.message?.successful_payment) {
     const sp = update.message.successful_payment;
     const paymentId = sp.invoice_payload;
-    const result = await executePurchase(paymentId, 'stars');
+    if (sp.currency !== 'XTR') return res.status(200).json({ ok: true });
+    const result = await executePurchase(String(paymentId), {
+      method: 'stars',
+      paidStars: Number(sp.total_amount) || 0,
+      payerTgId: update.message.from?.id ? String(update.message.from.id) : undefined
+    });
     if (!result.success) console.error('Stars purchase failed:', result.error);
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── Admin: approve/reject withdraw via callback ─────────────────
+  // (Must run before the text check: callback updates have no message.text.)
+  if (update.callback_query) {
+    const cq = update.callback_query;
+    const answer = (text: string) => fetch(`${TG_API}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: cq.id, text })
+    });
+    if (!ADMIN_TG_ID || String(cq.from?.id) !== String(ADMIN_TG_ID)) {
+      await answer('Not authorized');
+      return res.status(200).json({ ok: true });
+    }
+    const data = String(cq.data || '');
+    if (data.startsWith('approve_withdraw_') || data.startsWith('reject_withdraw_')) {
+      const action = data.startsWith('approve') ? 'approved' : 'rejected';
+      const reqId = data.split('_').slice(2).join('_');
+      // ✅ Idempotent: only a request that is still pending can change state (no double refunds).
+      const { data: changed } = await db.from('withdrawal_requests')
+        .update({ status: action, updated_at: new Date().toISOString() })
+        .eq('id', reqId)
+        .in('status', ['pending', 'pending_approval'])
+        .select('*');
+      const wReq = changed?.[0];
+      if (!wReq) {
+        await answer('Already handled or not found');
+        return res.status(200).json({ ok: true });
+      }
+      if (action === 'rejected') {
+        const ok = await adjustBalance(String(wReq.tg_id), wReq.amount_cents, 0);
+        if (!ok) await sendMsg(ADMIN_TG_ID, `🚨 Could not return $${(wReq.amount_cents / 100).toFixed(2)} to ${wReq.tg_id}. Fix manually.`);
+        await sendMsg(String(wReq.tg_id), `❌ Your withdrawal of $${(wReq.amount_cents / 100).toFixed(2)} was rejected. Amount returned to your balance.`);
+      } else {
+        // Approval only marks it; the admin sends the USDT manually. No automatic payout.
+        await sendMsg(String(wReq.tg_id), `✅ Your withdrawal of $${(wReq.amount_cents / 100).toFixed(2)} was approved and is being processed!`);
+      }
+      await answer(`Marked as ${action}`);
+    }
     return res.status(200).json({ ok: true });
   }
 
@@ -163,15 +213,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
       return res.status(200).json({ ok: true });
     }
-    const amount = parseFloat(parts[1]);
+    const amount = /^\d+(\.\d{1,2})?$/.test(parts[1]) ? parseFloat(parts[1]) : NaN;
     const wallet = parts[2];
+
+    if (!/^[A-Za-z0-9]{20,100}$/.test(wallet)) {
+      await sendMsg(chatId, '❌ Invalid wallet address.');
+      return res.status(200).json({ ok: true });
+    }
 
     if (isNaN(amount) || amount < 5) {           // ✅ min $5 (fix #3)
       await sendMsg(chatId, '❌ Minimum withdrawal is $5.00 USDT');
       return res.status(200).json({ ok: true });
     }
 
-    const amountCents = Math.floor(amount * 100); // ✅ integer cents (fix #8)
+    const amountCents = Math.round(amount * 100); // ✅ integer cents (input limited to 2 decimals)
 
     const { data: bal } = await db.from('balances').select('*').eq('tg_id', tgId).single();
     const available = bal?.balance_usdt_cents || 0;
@@ -212,15 +267,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const needsApproval = amountCents >= 2000 || (prevWithdrawals || 0) === 0;
     const status = needsApproval ? 'pending_approval' : 'pending';
 
-    // Deduct immediately (held in escrow)
-    await db.from('balances').upsert({
-      tg_id: tgId,
-      balance_usdt_cents: available - amountCents,
-      balance_stars: starsBalance,
-      updated_at: new Date().toISOString()
-    });
+    // Deduct immediately (held in escrow) — race-safe, fails if balance changed/insufficient
+    const debited = await adjustBalance(tgId, -amountCents, 0);
+    if (!debited) {
+      await sendMsg(chatId, '❌ Could not reserve your balance. Please try again.');
+      return res.status(200).json({ ok: true });
+    }
 
-    const { data: wReq } = await db.from('withdrawal_requests').insert({
+    const { data: wReq, error: wErr } = await db.from('withdrawal_requests').insert({
       tg_id: tgId,
       tg_name: tgName,
       amount_cents: amountCents,
@@ -229,7 +283,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       requires_approval: needsApproval
     }).select().single();
 
-    if (needsApproval && ADMIN_TG_ID) {
+    if (wErr || !wReq) {
+      await adjustBalance(tgId, amountCents, 0); // put the money back
+      await sendMsg(chatId, '❌ Could not create the withdrawal request. Your balance was not changed.');
+      return res.status(200).json({ ok: true });
+    }
+
+    // Every withdrawal is paid manually by the admin; always notify with buttons.
+    if (ADMIN_TG_ID) {
       // ✅ Notify admin with approve/reject buttons (fix #3)
       await fetch(`${TG_API}/sendMessage`, {
         method: 'POST',
@@ -238,9 +299,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           chat_id: ADMIN_TG_ID,
           text:
             `💸 <b>Withdrawal Request</b>\n\n` +
-            `User: ${tgName} (${tgId})\n` +
+            `User: ${escapeHtml(tgName)} (${tgId})\n` +
             `Amount: $${amount.toFixed(2)} USDT\n` +
-            `Wallet: <code>${wallet}</code>\n` +
+            `Wallet: <code>${escapeHtml(wallet)}</code>\n` +
+            `Needs extra review: ${needsApproval ? 'YES' : 'no'}\n` +
             `First withdrawal: ${(prevWithdrawals || 0) === 0 ? 'YES ⚠️' : 'No'}\n` +
             `ID: ${wReq?.id}`,
           parse_mode: 'HTML',
@@ -252,63 +314,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         })
       });
+    }
+    if (needsApproval) {
       await sendMsg(chatId,
         `⏳ <b>Withdrawal request submitted!</b>\n\n` +
         `Amount: $${amount.toFixed(2)} USDT\n` +
-        `Wallet: <code>${wallet}</code>\n\n` +
+        `Wallet: <code>${escapeHtml(wallet)}</code>\n\n` +
         `Requires manual approval (first withdrawal or ≥$20). You'll be notified within 24h.`
       );
     } else {
       await sendMsg(chatId,
         `✅ <b>Withdrawal request submitted!</b>\n\n` +
         `Amount: $${amount.toFixed(2)} USDT\n` +
-        `Wallet: <code>${wallet}</code>\n\n` +
+        `Wallet: <code>${escapeHtml(wallet)}</code>\n\n` +
         `Processing within 24 hours.`
       );
     }
     return res.status(200).json({ ok: true });
-  }
-
-  // ── Admin: approve/reject withdraw via callback ─────────────────
-  if (update.callback_query) {
-    const cq = update.callback_query;
-    const adminId = String(cq.from.id);
-    if (adminId !== ADMIN_TG_ID) {
-      await fetch(`${TG_API}/answerCallbackQuery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: cq.id, text: 'Not authorized' })
-      });
-      return res.status(200).json({ ok: true });
-    }
-    const data = cq.data as string;
-    if (data.startsWith('approve_withdraw_') || data.startsWith('reject_withdraw_')) {
-      const action = data.startsWith('approve') ? 'approved' : 'rejected';
-      const reqId = data.split('_').slice(2).join('_');
-      const { data: wReq } = await db.from('withdrawal_requests').select('*').eq('id', reqId).single();
-      if (wReq) {
-        await db.from('withdrawal_requests').update({ status: action, updated_at: new Date().toISOString() }).eq('id', reqId);
-        if (action === 'rejected') {
-          // Refund back to user
-          const { data: bal } = await db.from('balances').select('*').eq('tg_id', wReq.tg_id).single();
-          await db.from('balances').upsert({
-            tg_id: wReq.tg_id,
-            balance_usdt_cents: (bal?.balance_usdt_cents || 0) + wReq.amount_cents,
-            balance_stars: bal?.balance_stars || 0,
-            updated_at: new Date().toISOString()
-          });
-          await sendMsg(wReq.tg_id, `❌ Your withdrawal of $${(wReq.amount_cents / 100).toFixed(2)} was rejected. Amount returned to your balance.`);
-        } else {
-          await sendMsg(wReq.tg_id, `✅ Your withdrawal of $${(wReq.amount_cents / 100).toFixed(2)} was approved and is being processed!`);
-        }
-        await fetch(`${TG_API}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: cq.id, text: `Marked as ${action}` })
-        });
-      }
-      return res.status(200).json({ ok: true });
-    }
   }
 
   // ── /terms ───────────────────────────────────────────────────────
@@ -370,7 +392,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await sendMsg(chatId, '🏆 No winners yet. Be the first!');
     } else {
       const lines = hof.map((h: any, i: number) =>
-        `${i + 1}. <b>${h.winner_name}</b> — "${h.winning_word}" (${h.board_id.toUpperCase()})`
+        `${i + 1}. <b>${escapeHtml(h.winner_name)}</b> — "${escapeHtml(h.winning_word)}" (${h.board_id.toUpperCase()})`
       ).join('\n');
       await sendMsg(chatId, `🏆 <b>Hall of Fame</b>\n\n${lines}`);
     }

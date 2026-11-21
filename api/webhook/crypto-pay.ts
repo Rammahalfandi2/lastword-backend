@@ -1,34 +1,35 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { CRYPTO_PAY_TOKEN } from '../_config';
 import { executePurchase } from '../_purchase';
-import crypto from 'crypto';
+import { verifyCryptoPaySignature } from '../_auth';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  // Verify HMAC-SHA256 signature
-  const signature = req.headers['crypto-pay-api-signature'] as string;
-  if (!signature) return res.status(401).json({ error: 'Missing signature' });
-
-  const body = JSON.stringify(req.body);
-  const secretKey = crypto.createHash('sha256').update(CRYPTO_PAY_TOKEN).digest();
-  const hmac = crypto.createHmac('sha256', secretKey as unknown as crypto.BinaryLike).update(body).digest('hex');
-
-  if (hmac !== signature) {
+  // Verify HMAC-SHA256 of the body with SHA256(CRYPTO_PAY_TOKEN), constant-time.
+  const sigHeader = req.headers['crypto-pay-api-signature'];
+  const signature = Array.isArray(sigHeader) ? sigHeader[0] : sigHeader;
+  const rawBody = typeof req.body === 'string' ? req.body : undefined;
+  if (!verifyCryptoPaySignature(signature, CRYPTO_PAY_TOKEN, req.body, rawBody)) {
     console.error('Invalid CryptoBot signature');
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
-  const { update_type, payload } = req.body;
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  const { update_type, payload } = body || {};
   if (update_type !== 'invoice_paid') return res.status(200).json({ ok: true });
 
   const paymentId = payload?.payload;
-  if (!paymentId) return res.status(200).json({ ok: true });
-
-  const result = await executePurchase(paymentId);
-  if (!result.success) {
-    console.error('Purchase execution failed:', result.error);
+  if (!paymentId || payload?.status !== 'paid' || payload?.asset !== 'USDT') {
+    console.error('Ignoring invoice_paid with unexpected fields', payload?.invoice_id);
+    return res.status(200).json({ ok: true });
   }
+
+  const paidUsdtCents = Math.round(parseFloat(String(payload.amount)) * 100);
+  if (!Number.isFinite(paidUsdtCents)) return res.status(200).json({ ok: true });
+
+  const result = await executePurchase(String(paymentId), { method: 'usdt', paidUsdtCents });
+  if (!result.success) console.error('Purchase execution failed:', result.error);
 
   return res.status(200).json({ ok: true });
 }
