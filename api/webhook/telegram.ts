@@ -3,6 +3,7 @@ import { db } from '../_db';
 import { executePurchase } from '../_purchase';
 import { adjustBalance } from '../_balance';
 import { isValidTelegramWebhook, escapeHtml } from '../_auth';
+import { starsInvoiceTexts } from '../_invoice';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const ADMIN_TG_ID = process.env.ADMIN_TELEGRAM_ID!;
@@ -168,19 +169,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await sendMsg(chatId, '❌ This payment link has expired. Please try again from the website.');
       } else {
         const starsNeeded = starsForCents(payment.amount_cents);
+        const inv = starsInvoiceTexts(payment.word, payment.board_id);
         await fetch(`${TG_API}/sendInvoice`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            title: `The Last Word — ${payment.board_id.toUpperCase()} Board`,
-            description:
-              `Set your word: "${payment.word}"\n\n` +
-              `⚠️ Stars balance cannot be withdrawn — game credits only.\n` +
-              `💡 Use USDT for a withdrawable balance.`,
+            title: inv.title,
+            description: inv.description,
+            prices: [{ label: inv.label, amount: starsNeeded }],
             payload: payment.id,
             currency: 'XTR',
-            prices: [{ label: `Word: "${payment.word}"`, amount: starsNeeded }]
+            provider_token: ''
           })
         });
       }

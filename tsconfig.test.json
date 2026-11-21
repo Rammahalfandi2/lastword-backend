@@ -6,6 +6,7 @@
     "noEmit": false
   },
   "include": [
+    "api/_invoice.ts",
     "api/_profile.ts",
     "api/_auth.ts",
     "api/_config.ts",

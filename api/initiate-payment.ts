@@ -3,6 +3,7 @@ import { db } from './_db';
 import { nextPriceCents, starsForCents, CRYPTO_PAY_TOKEN, CAP_CENTS } from './_config';
 import crypto from 'crypto';
 import { isWordAllowed } from './_validate';
+import { cryptoPayDescription, starsInvoiceTexts } from './_invoice';
 import { validateInitDataUser, initDataFromHeaders } from './_auth';
 
 const CRYPTO_API = process.env.CRYPTO_PAY_API_URL || 'https://pay.crypt.bot/api';
@@ -119,7 +120,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         currency_type: 'crypto',
         asset: 'USDT',
         amount: amountUsdt,
-        description: `The Last Word: "${word.trim()}" on ${board_id.toUpperCase()} board`,
+        description: cryptoPayDescription(word, board_id),
         payload: paymentId,
         // Invoice expires quickly so it cannot be paid later at an old (lower) price.
         expires_in: 15 * 60,
@@ -148,16 +149,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const starsNeeded = starsForCents(priceCents); // ✅ integer
     // Invoice link for Telegram.WebApp.openInvoice (Mini App). The bot's /start pay_<id> flow still works too.
     let invoiceLink: string | null = null;
+    const inv = starsInvoiceTexts(word, board_id);
     try {
       const tgRes = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/createInvoiceLink`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: `The Last Word — ${String(board_id).toUpperCase()}`,
-          description: `Set your word: "${word.trim()}". Stars balance is game credit only and cannot be withdrawn.`,
+          title: inv.title,
+          description: inv.description,
+          prices: [{ label: inv.label, amount: starsNeeded }],
           payload: paymentId,
           currency: 'XTR',
-          prices: [{ label: `Word: ${word.trim()}`, amount: starsNeeded }]
+          provider_token: ''
         })
       });
       const tgData = await tgRes.json() as any;
