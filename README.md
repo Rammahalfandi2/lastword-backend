@@ -7,6 +7,7 @@ Static Telegram Mini App in `public/` (served at `/` and `/app`). Opened from th
 
 ## Admin endpoints (header `x-admin-key: <ADMIN_SECRET_KEY>`, never in the URL)
 - `POST /api/setup-webhook` (GET also accepted) — registers the Telegram webhook at `BASE_URL/api/webhook/telegram` with `secret_token = TELEGRAM_WEBHOOK_SECRET`, and sets the chat menu button to the Mini App (`BASE_URL/`).
+- `POST /api/setup-profile` — sets bot name, short description, description and commands for default/en/ar/ru (texts in `api/_profile.ts`) and returns a read-back.
 - `GET /api/withdraw` — lists withdrawal requests waiting for a manual payout. Approve/reject with the buttons the bot sends to `ADMIN_TELEGRAM_ID`. There are no automatic USDT payouts.
 
 ## User endpoints

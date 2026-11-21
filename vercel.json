@@ -36,6 +36,10 @@
       "destination": "/api/setup-webhook"
     },
     {
+      "source": "/api/setup-profile",
+      "destination": "/api/setup-profile"
+    },
+    {
       "source": "/api/webhook/crypto-pay",
       "destination": "/api/webhook/crypto-pay"
     },
