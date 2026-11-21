@@ -5,13 +5,15 @@
   "scripts": {
     "build": "echo 'No static build needed'",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js"
+    "test": "node scripts/gen-static.mjs && tsc -p tsconfig.test.json && node --test .test-dist/tests/*.test.js",
+    "build:worker": "node scripts/gen-static.mjs && esbuild src/worker.ts --bundle --minify --format=esm --platform=neutral --main-fields=module,main --conditions=workerd,worker,browser --target=es2022 --external:crypto --external:node:* --outfile=dist-worker/worker.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0"
   },
   "devDependencies": {
     "@vercel/node": "^5.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "esbuild": "^0.27.0"
   }
 }

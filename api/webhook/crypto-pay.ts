@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { CRYPTO_PAY_TOKEN } from '../_config';
+import { cryptoPayToken } from '../_config';
 import { executePurchase } from '../_purchase';
 import { verifyCryptoPaySignature } from '../_auth';
 
@@ -10,7 +10,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const sigHeader = req.headers['crypto-pay-api-signature'];
   const signature = Array.isArray(sigHeader) ? sigHeader[0] : sigHeader;
   const rawBody = typeof req.body === 'string' ? req.body : undefined;
-  if (!verifyCryptoPaySignature(signature, CRYPTO_PAY_TOKEN, req.body, rawBody)) {
+  if (!verifyCryptoPaySignature(signature, cryptoPayToken(), req.body, rawBody)) {
     console.error('Invalid CryptoBot signature');
     return res.status(401).json({ error: 'Invalid signature' });
   }

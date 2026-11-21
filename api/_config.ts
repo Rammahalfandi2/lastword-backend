@@ -1,7 +1,5 @@
-export const CRYPTO_PAY_TOKEN = process.env.CRYPTO_PAY_TOKEN!;
-export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-export const ADMIN_TELEGRAM_ID = process.env.ADMIN_TELEGRAM_ID!;
-export const BASE_URL = process.env.BASE_URL!;
+// Env is read at call time (works on Vercel and Cloudflare Workers).
+export const cryptoPayToken = () => process.env.CRYPTO_PAY_TOKEN || '';
 
 export const PRICE_STEP_PCT = 0.20;
 export const MIN_STEP_CENTS = 100;
@@ -42,7 +40,7 @@ export function starsForCents(cents: number): number {
 
 export async function sendTelegramMessage(chatId: string, text: string): Promise<void> {
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' })
@@ -53,5 +51,6 @@ export async function sendTelegramMessage(chatId: string, text: string): Promise
 }
 
 export async function notifyAdmin(text: string): Promise<void> {
-  if (ADMIN_TELEGRAM_ID) await sendTelegramMessage(ADMIN_TELEGRAM_ID, text);
+  const adminId = process.env.ADMIN_TELEGRAM_ID;
+  if (adminId) await sendTelegramMessage(adminId, text);
 }

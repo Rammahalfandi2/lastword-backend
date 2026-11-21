@@ -1,13 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { db } from './_db';
-import { nextPriceCents, starsForCents, CRYPTO_PAY_TOKEN, CAP_CENTS } from './_config';
+import { nextPriceCents, starsForCents, cryptoPayToken, CAP_CENTS } from './_config';
 import crypto from 'crypto';
 import { isWordAllowed } from './_validate';
 import { cryptoPayDescription, starsInvoiceTexts } from './_invoice';
 import { validateInitDataUser, initDataFromHeaders } from './_auth';
 
-const CRYPTO_API = process.env.CRYPTO_PAY_API_URL || 'https://pay.crypt.bot/api';
-const BOT_USERNAME = process.env.BOT_USERNAME || 'word2027_Bot';
 
 // ✅ SECURITY: In-memory rate limiter (fix #6)
 // Key: `${tg_id}:${endpoint}` → { count, resetAt }
@@ -110,10 +108,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (payment_method === 'usdt') {
     // ✅ SECURITY: amount as string with 2 decimal places (CryptoBot API requirement)
     const amountUsdt = (priceCents / 100).toFixed(2);
-    const cryptoRes = await fetch(`${CRYPTO_API}/createInvoice`, {
+    const cryptoRes = await fetch(`${process.env.CRYPTO_PAY_API_URL || 'https://pay.crypt.bot/api'}/createInvoice`, {
       method: 'POST',
       headers: {
-        'Crypto-Pay-API-Token': CRYPTO_PAY_TOKEN,
+        'Crypto-Pay-API-Token': cryptoPayToken(),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -126,7 +124,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         expires_in: 15 * 60,
         // /api/crypto-paid does not exist; send the payer back to the bot instead.
         paid_btn_name: 'openBot',
-        paid_btn_url: `https://t.me/${BOT_USERNAME}`
+        paid_btn_url: `https://t.me/${process.env.BOT_USERNAME || 'word2027_Bot'}`
       })
     });
 

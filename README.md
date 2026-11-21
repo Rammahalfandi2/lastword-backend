@@ -24,3 +24,9 @@ Static Telegram Mini App in `public/` (served at `/` and `/app`). Opened from th
 
 ## Checks
 `npm run typecheck` and `npm test`.
+
+## Cloudflare Workers
+`src/worker.ts` runs the same `api/*` handlers on a Worker (Vercel req/res adapter in `src/adapter.ts`, `nodejs_compat`), serves `public/` (ASSETS binding, or the embedded copy in `src/static.ts`), and verifies Crypto Pay signatures over the raw body.
+- Build: `npm run build:worker` → `dist-worker/worker.js` (or `wrangler deploy` with `wrangler.jsonc`).
+- URL: https://lastword.khazna.workers.dev
+- Secrets: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_SECRET_KEY`, `ADMIN_TELEGRAM_ID`, `CRYPTO_PAY_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`; var `BASE_URL`.

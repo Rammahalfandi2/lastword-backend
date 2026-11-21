@@ -5,11 +5,16 @@ import { adjustBalance } from '../_balance';
 import { isValidTelegramWebhook, escapeHtml } from '../_auth';
 import { starsInvoiceTexts } from '../_invoice';
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const ADMIN_TG_ID = process.env.ADMIN_TELEGRAM_ID!;
-const TG_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
-const APP_URL = `${(process.env.BASE_URL || 'https://lastword-backend.vercel.app').replace(/\/+$/, '')}/`;
-const PLAY_BUTTON = { inline_keyboard: [[{ text: '🎮 Play The Last Word', web_app: { url: APP_URL } }]] };
+// Env is read per request (Cloudflare Workers / Vercel), see loadEnv().
+let ADMIN_TG_ID = '';
+let TG_API = '';
+let PLAY_BUTTON: any = null;
+function loadEnv() {
+  ADMIN_TG_ID = process.env.ADMIN_TELEGRAM_ID || '';
+  TG_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+  const appUrl = `${(process.env.BASE_URL || 'https://lastword-backend.vercel.app').replace(/\/+$/, '')}/`;
+  PLAY_BUTTON = { inline_keyboard: [[{ text: '🎮 Play The Last Word', web_app: { url: appUrl } }]] };
+}
 // /start <param> deep links from the Mini App that map to bot commands
 const START_ALIASES: Record<string, string> = {
   terms: '/terms', support: '/support', paysupport: '/paysupport', balance: '/balance', withdraw: '/withdraw', scores: '/scores'
@@ -46,6 +51,7 @@ async function checkDailyWithdrawalLimit(tgId: string, amountCents: number): Pro
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end();
+  loadEnv();
 
   // ✅ SECURITY: Verify X-Telegram-Bot-Api-Secret-Token (constant-time, fail-closed if unset)
   if (!isValidTelegramWebhook(req.headers)) {
