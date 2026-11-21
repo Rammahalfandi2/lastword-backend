@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "outputDirectory": ".",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@5.0.0"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/boards", "destination": "/api/boards" },
+    { "source": "/api/state", "destination": "/api/state" },
+    { "source": "/api/leaderboard", "destination": "/api/leaderboard" },
+    { "source": "/api/balance", "destination": "/api/balance" },
+    { "source": "/api/initiate-payment", "destination": "/api/initiate-payment" },
+    { "source": "/api/withdraw", "destination": "/api/withdraw" },
+    { "source": "/api/setup-webhook", "destination": "/api/setup-webhook" },
+    { "source": "/api/webhook/crypto-pay", "destination": "/api/webhook/crypto-pay" },
+    { "source": "/api/webhook/telegram", "destination": "/api/webhook/telegram" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    }
+  ]
+}

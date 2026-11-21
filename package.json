@@ -1,0 +1,15 @@
+{
+  "name": "lastword-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo 'No static build needed'"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.0.0",
+    "typescript": "^5.0.0"
+  }
+}
